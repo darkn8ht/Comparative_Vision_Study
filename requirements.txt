@@ -1,0 +1,12 @@
+torch
+torchvision
+scikit-learn
+pandas
+numpy
+tqdm
+PyYAML
+segmentation-models-pytorch
+statsmodels
+matplotlib
+seaborn
+tabulate

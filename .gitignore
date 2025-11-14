@@ -1,0 +1,25 @@
+# Python virtual environment
+.venv/
+venv/
+*.venv
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large data files
+data/
+
+# Saved models
+models/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# VS Code editor settings
+.vscode/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
