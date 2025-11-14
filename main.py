@@ -78,8 +78,6 @@ def run_classification_task(task_name, task_config, train_loader, val_loader, te
         
         model = get_model(task_config['TYPE'], model_name, num_classes).to(device)
         
-        start_time = time.time()
-        
         if not eval_only:
             print("--- Starting Training ---")
             optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=base_cfg['LEARNING_RATE'])
@@ -103,9 +101,6 @@ def run_classification_task(task_name, task_config, train_loader, val_loader, te
             model.load_state_dict(torch.load(checkpoint_path, weights_only=True))
             trained_model = model
 
-        end_time = time.time()
-        computation_time = end_time - start_time
-        
         print(f"\n--- Running Final Test Evaluation for {model_name} ---")
         model_report_name = f"{task_name}_{model_name}"
         test_metrics, _, _, _ = evaluate_classification_model(
@@ -113,9 +108,7 @@ def run_classification_task(task_name, task_config, train_loader, val_loader, te
             report_dir, model_report_name
         )
         
-        test_metrics['Computation Time (s)'] = computation_time if not eval_only else 0
         print(pd.Series(test_metrics).to_string(float_format="%.3f"))
-        
         results[model_name] = test_metrics
         
     results_df = pd.DataFrame.from_dict(results, orient='index').reset_index().rename(columns={'index': 'Model'})
@@ -138,6 +131,7 @@ def run_study(tasks_to_run=None, eval_only=False):
     os.makedirs(config['BASE_CONFIG']['REPORT_DIR'], exist_ok=True)
     
     overall_results = {}
+    dataset_splits = {}
     
     tasks_to_execute = tasks_to_run if tasks_to_run is not None else config['TASKS'].keys()
     
@@ -156,6 +150,13 @@ def run_study(tasks_to_run=None, eval_only=False):
             train_loader, val_loader, test_loader, num_classes = get_data_loaders(
                 task_name, task_config['BASE_CONFIG']
             )
+            
+            # Store split info for the report
+            dataset_splits[task_name] = {
+                'Train': len(train_loader.dataset),
+                'Val': len(val_loader.dataset),
+                'Test': len(test_loader.dataset)
+            }
             
             if task_config['TYPE'] == 'classification':
                 task_results = run_classification_task(
@@ -179,33 +180,33 @@ def run_study(tasks_to_run=None, eval_only=False):
     
     report_dir = config['BASE_CONFIG']['REPORT_DIR']
 
-    dataset_df = create_dataset_details_table(config)
+    dataset_df = create_dataset_details_table(config, dataset_splits)
     print("\n--- Dataset Details ---")
     print(dataset_df.to_markdown(index=False))
     dataset_df.to_csv(os.path.join(report_dir, "report_dataset_details.csv"), index=False)
     
-    model_comp_df = create_model_comparison_table(overall_results)
-    if model_comp_df.empty:
+    all_tasks_df = create_model_comparison_table(overall_results)
+    
+    if all_tasks_df.empty:
         print("\nNo models were evaluated. Skipping final reports.")
     else:
-        print("\n--- Model Comparison ---")
-        print(model_comp_df.to_markdown(index=False, floatfmt=".3f"))
-        model_comp_df.to_csv(os.path.join(report_dir, "report_model_comparison.csv"), index=False)
+        print("\n--- Model Comparison Tables ---")
+        for task_name in all_tasks_df['Task'].unique():
+            print(f"\n--- Results for {task_name} ---")
+            task_df = all_tasks_df[all_tasks_df['Task'] == task_name].drop(columns=['Task'])
+            task_df = task_df.dropna(axis=1, how='all')
+            print(task_df.to_markdown(index=False, floatfmt=".3f"))
         
-        best_model_df = create_best_model_table(model_comp_df)
-        print("\n--- Best Model per Task ---")
+        all_tasks_df.to_csv(os.path.join(report_dir, "report_model_comparison_full.csv"), index=False)
+        
+        best_model_df = create_best_model_table(all_tasks_df)
+        print("\n--- Best Model per Task (Common Metrics) ---")
         print(best_model_df.to_markdown(index=False, floatfmt=".3f"))
         best_model_df.to_csv(os.path.join(report_dir, "report_best_models.csv"), index=False)
 
         chart_save_path = os.path.join(report_dir, "report_best_models_comparison.png")
-        best_model_df_copy = best_model_df.copy()
-        best_model_df_copy['Score'] = best_model_df_copy.get('F1-Score', 0)
-        if 'F1-Score' not in best_model_df_copy.columns: # Handle segmentation only
-            best_model_df_copy['Score'] = best_model_df_copy.get('dice', 0)
-        
-        # --- FIX for FutureWarning ---
-        save_bar_chart(best_model_df_copy, x_col='Task', y_col='Score', 
-                       title="Best Model Performance per Task (F1/Dice)", 
+        save_bar_chart(best_model_df, x_col='Task', y_col='F1-Score', 
+                       title="Best Model Performance per Task (F1-Score)", 
                        save_path=chart_save_path)
 
     print(f"\n✅ All reports and plots saved to '{report_dir}' directory.")
@@ -219,8 +220,3 @@ if __name__ == "__main__":
     
     # --- Option 2: Run Evaluation ONLY (skips training) ---
     run_study(eval_only=True)
-    
-    # --- Option 3: Run Evaluation ONLY for a specific task ---
-    # run_study(tasks_to_run=['M1_CT_Classification'], eval_only=True)
-    # run_study(tasks_to_run=['M2_LIDC_Segmentation'], eval_only=True)
-    # run_study(tasks_to_run=['M3_Rads_Classification'], eval_only=True)

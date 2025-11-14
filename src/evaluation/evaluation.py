@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, cohen_kappa_score, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score, 
+    roc_auc_score, cohen_kappa_score, confusion_matrix,
+    balanced_accuracy_score, matthews_corrcoef, log_loss
+)
 from statsmodels.stats.contingency_tables import mcnemar
 
 def calculate_all_metrics(y_true, y_pred, y_prob, labels):
@@ -36,11 +40,14 @@ def calculate_all_metrics(y_true, y_pred, y_prob, labels):
 
     metrics = {
         'Accuracy': accuracy_score(y_true, y_pred),
+        'Balanced Accuracy': balanced_accuracy_score(y_true, y_pred),
         'Precision': precision_score(y_true, y_pred, average=average_type, zero_division=0),
         'F1-Score': f1_score(y_true, y_pred, average=average_type, zero_division=0),
-        'ROC AUC': auc_score,
-        'CK Value': cohen_kappa_score(y_true, y_pred), # RENAMED
         'Sensitivity': sensitivity,
-        'Specificity': specificity
+        'Specificity': specificity,
+        'ROC AUC': auc_score,
+        'CK Value': cohen_kappa_score(y_true, y_pred),
+        'MCC': matthews_corrcoef(y_true, y_pred),
+        'Log Loss': log_loss(y_true, y_prob)
     }
     return metrics

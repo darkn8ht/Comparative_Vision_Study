@@ -1,4 +1,4 @@
-Task Name,Type,Data Source,Image Size,Classes
-M1_CT_Classification,classification,"ImageFolder (e.g., CQ500)",224,3
-M2_LIDC_Segmentation,segmentation,LIDC-IDRI (Custom),256,1
-M3_Rads_Classification,classification,"Mendeley (Lung-RADS, 5rr22hgzwr)",224,2
+Task Name,Type,Image Size,Classes,Train Images,Val Images,Test Images
+M1_CT_Classification,classification,224,3,767,164,166
+M2_LIDC_Segmentation,segmentation,256,1,779,97,98
+M3_Rads_Classification,classification,224,2,566,142,264

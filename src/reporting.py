@@ -9,7 +9,6 @@ def save_bar_chart(df, x_col, y_col, title, save_path):
     plt.figure(figsize=(10, 6))
     df_sorted = df.sort_values(by=y_col, ascending=False)
     
-    # --- FIX for FutureWarning ---
     ax = sns.barplot(x=x_col, y=y_col, data=df_sorted, palette="viridis", hue=x_col, legend=False)
     
     ax.set_title(title, fontsize=16)
@@ -72,24 +71,18 @@ def save_roc_curve(y_true, y_prob, labels, save_path):
     plt.savefig(save_path)
     plt.close()
 
-def create_dataset_details_table(config):
+def create_dataset_details_table(config, dataset_splits):
     data = []
     for task_name, task_config in config['TASKS'].items():
-        if task_name == 'M1_CT_Classification':
-            source = "ImageFolder (e.g., CQ500)"
-        elif task_name == 'M2_LIDC_Segmentation':
-            source = "LIDC-IDRI (Custom)"
-        elif task_name == 'M3_Rads_Classification':
-            source = "Mendeley (Lung-RADS, 5rr22hgzwr)"
-        else:
-            source = "Unknown"
-        
+        splits = dataset_splits.get(task_name, {})
         data.append({
             "Task Name": task_name,
             "Type": task_config['TYPE'],
-            "Data Source": source,
             "Image Size": task_config['IMAGE_SIZE'],
-            "Classes": task_config['NUM_CLASSES']
+            "Classes": task_config['NUM_CLASSES'],
+            "Train Images": splits.get('Train'),
+            "Val Images": splits.get('Val'),
+            "Test Images": splits.get('Test')
         })
     return pd.DataFrame(data)
 
@@ -105,15 +98,11 @@ def create_model_comparison_table(all_results):
 
     final_report_df = pd.concat(all_dfs, ignore_index=True)
     
-    final_report_df = final_report_df.rename(columns={
-        'Computation Time (s)': 'Time (s)'
-    })
-    
-    # --- MODIFIED: Updated column list ---
+    # Define all possible columns from all tasks
     cols_to_include = [
-        'Task', 'Model', 'Accuracy', 'F1-Score', 'Precision', 
+        'Task', 'Model', 'Accuracy', 'Balanced Accuracy', 'F1-Score', 'Precision', 
         'Sensitivity', 'Specificity', 'ROC AUC', 
-        'CK Value', 'Time (s)', 'iou'
+        'CK Value', 'MCC', 'Log Loss', 'iou'
     ]
     
     final_cols = [col for col in cols_to_include if col in final_report_df.columns]
@@ -126,6 +115,19 @@ def create_best_model_table(model_comparison_df):
         
     df_copy = model_comparison_df.copy()
     
-    # M2 task now reports 'F1-Score', so we can simplify this
+    # Find best model based on F1-Score
     best_models = df_copy.loc[df_copy.groupby('Task')['F1-Score'].idxmax()]
-    return best_models
+    
+    # Select common columns for the final comparison table
+    common_cols = {
+        'Task': 'Task',
+        'Model': 'Model',
+        'F1-Score': 'F1-Score',
+        'Balanced Accuracy': 'Balanced Accuracy',
+        'MCC': 'MCC'
+    }
+    
+    final_cols = [col for col in common_cols.keys() if col in best_models.columns]
+    final_best_df = best_models[final_cols].rename(columns=common_cols)
+    
+    return final_best_df

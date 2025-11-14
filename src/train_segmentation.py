@@ -43,9 +43,10 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         running_loss += loss.item() * inputs.size(0)
     return running_loss / len(loader.dataset)
 
-def validate_model(model, loader, criterion, device):
+def validate_model(model, loader, criterion, bce_loss, device):
     model.eval()
     running_loss = 0.0
+    running_bce_loss = 0.0
     all_preds, all_targets = [], []
     
     with torch.no_grad():
@@ -53,15 +54,24 @@ def validate_model(model, loader, criterion, device):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
             preds = torch.sigmoid(outputs)
+            
             loss = criterion(outputs, targets)
             running_loss += loss.item() * inputs.size(0)
+            
+            bce_loss_val = bce_loss(outputs, targets)
+            running_bce_loss += bce_loss_val.item() * inputs.size(0)
+            
             all_preds.append(preds.cpu())
             all_targets.append(targets.cpu())
 
     epoch_loss = running_loss / len(loader.dataset)
+    epoch_bce_loss = running_bce_loss / len(loader.dataset)
+    
     all_preds = torch.cat(all_preds)
     all_targets = torch.cat(all_targets)
     metrics = calculate_segmentation_metrics(all_preds, all_targets)
+    
+    metrics['Log Loss'] = epoch_bce_loss
     return epoch_loss, metrics
 
 def run_segmentation_task(task_name, task_config, train_loader, val_loader, test_loader, eval_only=False):
@@ -77,9 +87,9 @@ def run_segmentation_task(task_name, task_config, train_loader, val_loader, test
     
     results = {}
     
-    bce_loss = nn.BCEWithLogitsLoss()
+    bce_loss_fn = nn.BCEWithLogitsLoss()
     dice_loss_fn = DiceLoss()
-    criterion = lambda pred, target: bce_loss(pred, target) + dice_loss_fn(torch.sigmoid(pred), target)
+    criterion = lambda pred, target: bce_loss_fn(pred, target) + dice_loss_fn(torch.sigmoid(pred), target)
 
     for model_name in MODELS:
         print(f"\n--- Starting Model: {model_name} ({task_name}) ---")
@@ -89,8 +99,6 @@ def run_segmentation_task(task_name, task_config, train_loader, val_loader, test
         checkpoint_path = os.path.join(model_save_dir, f"{model_name}_best.pth")
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         
-        start_time = time.time()
-        
         if not eval_only:
             print("--- Starting Training ---")
             optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -98,18 +106,12 @@ def run_segmentation_task(task_name, task_config, train_loader, val_loader, test
             
             for epoch in range(1, num_epochs + 1):
                 train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
-                val_loss, val_metrics = validate_model(model, val_loader, criterion, device)
+                val_loss, val_metrics = validate_model(model, val_loader, criterion, bce_loss_fn, device)
                 
                 val_f1 = val_metrics['F1-Score']
-                val_iou = val_metrics['iou']
-                val_recall = val_metrics['Sensitivity']
+                val_mcc = val_metrics['MCC']
 
-                print(f"Epoch {epoch}/{num_epochs} | TRAIN Loss: {train_loss:.3f} | VAL Loss: {val_loss:.3f} | VAL F1: {val_f1:.3f} | VAL IoU: {val_iou:.3f} | VAL Recall: {val_recall:.3f}")
-                
-                if val_f1 > best_val_f1:
-                    best_val_f1 = val_f1
-                    torch.save(model.state_dict(), checkpoint_path)
-                    print(f"  --> Model checkpoint saved to {checkpoint_path}")
+                print(f"Epoch {epoch}/{num_epochs} | TRAIN Loss: {train_loss:.3f} | VAL Loss: {val_loss:.3f} | VAL F1: {val_f1:.3f} | VAL MCC: {val_mcc:.3f}")
         
         else:
             print(f"--- Skipping Training. Loading pre-trained model from {checkpoint_path} ---")
@@ -118,16 +120,10 @@ def run_segmentation_task(task_name, task_config, train_loader, val_loader, test
                 results[model_name] = {}
                 continue
 
-        end_time = time.time()
-        computation_time = end_time - start_time
-
         print("\n--- Running Final Test Evaluation ---")
         model.load_state_dict(torch.load(checkpoint_path, weights_only=True))
-        _, test_metrics = validate_model(model, test_loader, criterion, device)
+        _, test_metrics = validate_model(model, test_loader, criterion, bce_loss_fn, device)
         
-        test_metrics['Computation Time (s)'] = computation_time if not eval_only else 0
-        
-        # --- FIX: Use pd.Series to print all metrics ---
         print(pd.Series(test_metrics).to_string(float_format="%.3f"))
         results[model_name] = test_metrics
         
